@@ -1,0 +1,59 @@
+#!/bin/bash
+# General idea:
+# Iterate over all open positions
+# Extract name, price, value, PL (Profit/Loss) using jq
+# Display name, price per share, total value, profit/loss
+# If profit/loss is positive, display text in green else red
+# Ideally would like text to scroll across the polybar
+
+# get all open positions
+# pull out the http response code and store the JSON body somewhere
+RES=$(curl -o ~/stocky_output -s -w '%{http_code}\n' "https://live.trading212.com/api/v0/equity/positions" -H "Authorization: Basic $T212_CREDS")
+BODY=$(cat ~/stocky_output | jq -rc '.[] | {Ticker: .instrument.ticker, Name: .instrument.name,Price: .currentPrice, value: .walletImpact.currentValue, PL: .walletImpact.unrealizedProfitLoss} | @base64')
+
+# Handle HTTP responses based on response code.
+case $RES in
+200)
+  # echo -e "success\n"
+  # Iterate through each line, base64 decode them, print the values with some formatting
+
+  for row in $(echo "${BODY}"); do
+    _jq() {
+      echo ${row} | base64 --decode | jq -r ${1}
+    }
+
+    # Extract values
+    TICKER=$(_jq '.Ticker')
+    STOCK=$(_jq '.Name')
+    PRICE=$(_jq '.Price')
+    VALUE=$(_jq '.value')
+    PL=$(_jq '.PL')
+
+    if (($(echo "$PL >= 0" | bc -l))); then
+      echo -e "|$STOCK| Ticker:$TICKER, Current Share Price:$PRICE, Current Value:$VALUE, Returns:%{F#00FF00}$PL%{F-}"
+      # hold for 2 seconds
+      read -t 2
+    else
+      echo -e "|$STOCK| Ticker:$TICKER, Current Share Price:$PRICE, Current Value:$VALUE, Returns:%{F#FF2400}$PL%{F-}"
+
+      read -t 2
+    fi
+
+  done
+  ;;
+401)
+  echo "Unauthorized"
+  ;;
+429)
+  echo "Too many requests"
+  ;;
+408)
+  echo "Request Timed Out"
+  ;;
+000)
+  echo "Network Error"
+  ;;
+*)
+  echo "Some other issue"
+  ;;
+esac
